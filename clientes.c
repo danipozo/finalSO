@@ -109,8 +109,8 @@ int main (int argc, char **argv)
 
 // Compone los nombres de los FIFOs conocidos a partir del parametro,
 // uno de entrada y otro de salida (desde el punto de vista del servidor).
-    sprintf(nombrefifoe,"%se",argv[1]);
-    sprintf(nombrefifos,"%ss",argv[1]);
+    sprintf(nombrefifoe,"%sIn",argv[1]);
+    sprintf(nombrefifos,"%sOut",argv[1]);
 
 
     if ((dfifoe = open (nombrefifoe, O_WRONLY)) == -1)
