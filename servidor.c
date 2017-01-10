@@ -11,35 +11,7 @@
 #include <stdbool.h>
 #include <string.h>
 
-#define ERR_CHECKL0(code, syscall) sprintf(err_msg_str, "%s:%d %s", __FILE__, __LINE__, syscall); \
-                                   error_check(code, is_error_l0, handle_error, err_msg_str);
-
-void error_check(int code, bool(*is_error)(int), void(*on_error)(char*), char* msg)
-{
-  if(is_error(code))
-    {
-      on_error(msg);
-    }
-  #ifdef DEBUG
-  else{
-    static int n_checks = 1;
-
-    printf("ERROR CHECK: Check %d succeeded\n", n_checks++);
-  }
-  #endif
-}
-
-/* Less-than-zero errors. */
-bool is_error_l0(int code)
-{
-  return code < 0;
-}
-
-void handle_error(char* msg)
-{
-  perror(msg);
-  exit(EXIT_FAILURE);
-}
+#include "error_check.h"
 
 void TERM_handler(int s)
 {
@@ -47,9 +19,14 @@ void TERM_handler(int s)
   exit(EXIT_SUCCESS);
 }
 
+void CHLD_handler(int s)
+{
+  wait(NULL);
+}
+
+
 int main()
 {
-    char err_msg_str[40];
     char buf[1024];
 
     struct sigaction sa;
@@ -58,13 +35,20 @@ int main()
     sigemptyset(&sa.sa_mask);
 
     int sret = sigaction(SIGTERM, &sa, NULL);
+    ERR_CHECKL0(sret, "sigaction")
+
+    sa.sa_handler = CHLD_handler;
+    sa.sa_flags = SA_RESTART;
+    sigemptyset(&sa.sa_mask);
+    sret = sigaction(SIGCHLD, &sa, NULL);
+    ERR_CHECKL0(sret, "sigaction")
 
     mknod("fifoIn", S_IFIFO|S_IRWXU|S_IRWXG, 0);
     mknod("fifoOut", S_IFIFO|S_IRWXU|S_IRWXG, 0);
 
-    int fd = open(".spool.lock", O_RDWR|O_CREAT, S_IRWXU|S_IRWXG);
+    int lock_fd = open(".spool.lock", O_RDWR|O_CREAT, S_IRWXU|S_IRWXG);
 
-    ERR_CHECKL0(fd, "open")
+    ERR_CHECKL0(lock_fd, "open")
 
     int fdFifoIn = open("fifoIn", O_RDWR);
     int fdFifoOut = open("fifoOut", O_RDWR);
@@ -81,13 +65,26 @@ int main()
 
       size += current_size;
 
-      int nclients = size/4;
-      size -= nclients*4;
+      int nclients = size/sizeof(int);
+      size -= nclients*sizeof(int);
 
       for(int i=0; i<nclients; i++)
+      {
+        // Serve client.
+        int pid = fork();
+        ERR_CHECKL0(pid, "fork")
+
+        if(!pid)
         {
-          // Serve client.
+          char str[4];
+          sprintf(str, "%d", lock_fd);
+          execlp("./proxy", "proxy", str, NULL);
         }
+        else
+        {
+          write(fdFifoOut, &pid, sizeof(int));
+        }
+      }
 
     }
 
